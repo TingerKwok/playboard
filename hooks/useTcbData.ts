@@ -1,9 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
-import { tcbApp, isTcbConfigured } from '../tcbConfig';
-import { Note } from '../types';
 
-// TCB returns notes with an '_id' property
-type TcbNote = Omit<Note, 'id'> & { _id: string };
+import { useCallback } from 'react';
+import useLocalStorage from './useLocalStorage';
+import { Note } from '../types';
 
 const noteColors = [
   'bg-orange-200 dark:bg-orange-700',
@@ -16,41 +14,18 @@ const noteColors = [
 
 const rotations = ['-rotate-2', 'rotate-2', '-rotate-1', 'rotate-1', '-rotate-3', 'rotate-3'];
 
-export function useTcbData() {
-  const [notes, setNotes] = useState<Note[]>([]);
-
-  useEffect(() => {
-    if (!isTcbConfigured || !tcbApp) {
-      return;
-    }
-
-    const db = tcbApp.database();
-    const notesCollection = db.collection('notes');
-    
-    const watcher = notesCollection.watch({
-      onChange: (snapshot) => {
-        if (!snapshot.docs) return;
-        const notesArray: Note[] = snapshot.docs.map((doc: TcbNote) => ({
-          ...doc,
-          id: doc._id, // Map TCB's _id to our app's id
-        }));
-        setNotes(notesArray);
-      },
-      onError: (err) => {
-        console.error('Tencent CloudBase watcher error:', err);
-      }
-    });
-
-    return () => watcher.close();
-  }, []);
+/**
+ * Custom hook to manage board notes using localStorage.
+ * Provides functions to add, delete, and update notes.
+ */
+export function useBoardData() {
+  const [notes, setNotes] = useLocalStorage<Note[]>('notes', []);
 
   const addNote = useCallback((content: string, type: 'text' | 'image') => {
-    if (!tcbApp) return;
-    const db = tcbApp.database();
-    
     const maxZ = notes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
 
-    const newNote: Omit<Note, 'id'> = {
+    const newNote: Note = {
+      id: crypto.randomUUID(),
       content,
       type,
       x: window.innerWidth / 2 - 100 + (Math.random() * 100 - 50),
@@ -63,19 +38,18 @@ export function useTcbData() {
         : rotations[Math.floor(Math.random() * rotations.length)],
       zIndex: maxZ + 1,
     };
-
-    db.collection('notes').add(newNote);
-  }, [notes]);
+    setNotes(prevNotes => [...prevNotes, newNote]);
+  }, [notes, setNotes]);
   
   const deleteNote = useCallback((noteId: string) => {
-    if (!tcbApp) return;
-    tcbApp.database().collection('notes').doc(noteId).remove();
-  }, []);
+    setNotes(prevNotes => prevNotes.filter(note => note.id !== noteId));
+  }, [setNotes]);
 
   const updateNote = useCallback((noteId: string, newValues: Partial<Omit<Note, 'id'>>) => {
-      if (!tcbApp) return;
-      tcbApp.database().collection('notes').doc(noteId).update(newValues);
-  }, []);
+      setNotes(prevNotes => prevNotes.map(note => 
+        note.id === noteId ? { ...note, ...newValues } : note
+      ));
+  }, [setNotes]);
 
   return { notes, addNote, deleteNote, updateNote };
 }

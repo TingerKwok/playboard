@@ -1,31 +1,35 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useTcbData } from './hooks/useTcbData';
+import { GoogleGenAI, Modality, Type } from '@google/genai';
+import { useBoardData } from './hooks/useTcbData'; // The hook is now in this file
 import StickyNote from './components/StickyNote';
 import AddNoteForm from './components/AddTopicForm';
-import { isTcbConfigured, tcbApp } from './tcbConfig';
 import { Note } from './types';
 
-function TcbConfigMessage() {
+// Vite replaces this with the actual key from .env file during build
+const isGeminiConfigured = process.env.API_KEY && process.env.API_KEY.length > 0;
+
+function GeminiConfigMessage() {
   return (
     <div className="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg shadow-2xl p-8 max-w-lg w-full text-center">
-        <h2 className="text-2xl font-bold text-red-600 dark:text-red-500 mb-4">Action Required: Configure Tencent CloudBase</h2>
+        <h2 className="text-2xl font-bold text-red-600 dark:text-red-500 mb-4">Action Required: Configure Gemini API Key</h2>
         <p className="mb-4">
-          This collaborative board requires Tencent CloudBase (TCB) to function.
+          This application requires a Google Gemini API key to function.
         </p>
         <p className="mb-6">
-          Please open the <code className="bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono">tcbConfig.ts</code> file and replace the placeholder with your TCB Environment ID.
+          Please create a <code className="bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono">.env</code> file in the project root and add your API key like this: <br/><br/><code className="bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono">GEMINI_API_KEY='YOUR_API_KEY'</code>
         </p>
         <a 
-          href="https://console.cloud.tencent.com/tcb/env/index" 
+          href="https://ai.google.dev/gemini-api/docs/api-key"
           target="_blank" 
           rel="noopener noreferrer"
           className="inline-block bg-orange-500 text-white font-semibold rounded-lg shadow-md px-6 py-3 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 dark:focus:ring-offset-gray-800 transition-transform transform hover:scale-105"
         >
-          Go to TCB Console
+          Get a Gemini API Key
         </a>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-6">
-          After configuring, please follow the instructions in README.md to set up the database collection and cloud function.
+          After adding the key, please restart the development server.
         </p>
       </div>
     </div>
@@ -48,7 +52,7 @@ function LoadingOverlay({ message }: { message: string }) {
 }
 
 function App() {
-  const { notes, addNote, deleteNote, updateNote } = useTcbData();
+  const { notes, addNote, deleteNote, updateNote } = useBoardData();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggingNote, setDraggingNote] = useState<{ id: string; offsetX: number; offsetY: number; width: number; height: number; } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -62,28 +66,57 @@ function App() {
   }, [notes, draggingNote]);
 
   const handleFormSubmit = async (promptText: string) => {
-    if (!tcbApp) return;
     setIsProcessing(true);
     setLoadingMessage("Thinking...");
 
-    try {
-      const res = await tcbApp.callFunction({
-        name: 'hunyuan',
-        data: { promptText },
-      });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
-      if (!res.result || res.result.error) {
-          throw new Error(res.result?.error || 'Cloud function returned an unexpected error.');
-      }
+    try {
+      const classifyPrompt = `Is the following an English noun or a simple noun phrase that can be depicted as a single object? Respond in JSON format with a single key "type" which can be "image" or "text". For example: {"type": "image"}. Text: "${promptText}"`;
       
-      const { type, content } = res.result;
+      const generationResult = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: classifyPrompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                enum: ["image", "text"],
+              }
+            },
+            required: ["type"],
+          }
+        }
+      });
+      
+      const resultJson = JSON.parse(generationResult.text);
+      const type = resultJson.type;
 
       if (type === 'image') {
         setLoadingMessage("Creating your image...");
-        const imageUrl = `data:image/png;base64,${content}`;
-        addNote(imageUrl, 'image');
+        const imagePrompt = `A simple, cute, cartoon-style icon of a "${promptText}". Centered on a clean, white background.`;
+        
+        const imageResponse = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: { parts: [{ text: imagePrompt }] },
+          config: {
+            responseModalities: [Modality.IMAGE],
+          },
+        });
+        
+        const part = imageResponse.candidates?.[0]?.content?.parts?.[0];
+        if (part?.inlineData) {
+            const base64ImageBytes = part.inlineData.data;
+            const imageUrl = `data:image/png;base64,${base64ImageBytes}`;
+            addNote(imageUrl, 'image');
+        } else {
+            throw new Error("Image generation failed to return data.");
+        }
       } else {
-        addNote(content, 'text');
+        addNote(promptText, 'text');
       }
     } catch (error) {
       console.error("Processing failed:", error);
@@ -100,7 +133,8 @@ function App() {
     const targetNote = localNotes.find(n => n.id === noteId);
     if (targetNote && targetNote.zIndex <= maxZ) {
         const newZIndex = maxZ + 1;
-        setLocalNotes(prev => prev.map(n => n.id === noteId ? { ...n, zIndex: newZIndex } : n).sort((a,b) => (a.zIndex || 0) - (b.zIndex || 0)));
+        const newNotes = localNotes.map(n => n.id === noteId ? { ...n, zIndex: newZIndex } : n).sort((a,b) => (a.zIndex || 0) - (b.zIndex || 0));
+        setLocalNotes(newNotes);
         updateNote(noteId, { zIndex: newZIndex });
     }
   }, [localNotes, updateNote]);
@@ -148,8 +182,8 @@ function App() {
     setDraggingNote(null);
   }, [draggingNote, updateNote, localNotes]);
   
-  if (!isTcbConfigured) {
-    return <TcbConfigMessage />;
+  if (!isGeminiConfigured) {
+    return <GeminiConfigMessage />;
   }
 
   return (
