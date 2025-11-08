@@ -14,8 +14,10 @@ let tcbApp;
 
 if (isTcbConfigured) {
   try {
-    // The 'tcb' object is globally available from the SDK script in index.html
-    tcbApp = tcb.init({
+    // The 'tcb' object is globally available from the SDK script in index.html.
+    // We explicitly use `window.tcb` to ensure we're accessing the global object
+    // from within this module, resolving the "tcb is not defined" error.
+    tcbApp = window.tcb.init({
       env: TCB_ENV_ID,
     });
   } catch (e) {

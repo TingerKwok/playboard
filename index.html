@@ -38,6 +38,21 @@
 </head>
   <body class="bg-orange-50 dark:bg-slate-900">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module">
+      // This function will dynamically import and run our React app.
+      function startApp() {
+        import('/index.tsx');
+      }
+
+      // We need to wait for the tcb.js script to load and define the global `tcb` object.
+      // A reliable way is to check for its existence periodically.
+      const checkTcbInterval = setInterval(() => {
+        // @ts-ignore
+        if (window.tcb) {
+          clearInterval(checkTcbInterval);
+          startApp();
+        }
+      }, 50); // Check every 50ms
+    </script>
   </body>
 </html>
