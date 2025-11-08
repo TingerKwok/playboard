@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getTcbApp, isTcbConfigured } from '../tcbConfig';
+import { tcbApp, isTcbConfigured } from '../tcbConfig';
 import { Note } from '../types';
 
 // TCB returns notes with an '_id' property
@@ -20,7 +20,6 @@ export function useTcbData() {
   const [notes, setNotes] = useState<Note[]>([]);
 
   useEffect(() => {
-    const tcbApp = getTcbApp();
     if (!isTcbConfigured || !tcbApp) {
       return;
     }
@@ -46,7 +45,6 @@ export function useTcbData() {
   }, []);
 
   const addNote = useCallback((content: string, type: 'text' | 'image') => {
-    const tcbApp = getTcbApp();
     if (!tcbApp) return;
     const db = tcbApp.database();
     
@@ -70,13 +68,11 @@ export function useTcbData() {
   }, [notes]);
   
   const deleteNote = useCallback((noteId: string) => {
-    const tcbApp = getTcbApp();
     if (!tcbApp) return;
     tcbApp.database().collection('notes').doc(noteId).remove();
   }, []);
 
   const updateNote = useCallback((noteId: string, newValues: Partial<Omit<Note, 'id'>>) => {
-      const tcbApp = getTcbApp();
       if (!tcbApp) return;
       tcbApp.database().collection('notes').doc(noteId).update(newValues);
   }, []);
