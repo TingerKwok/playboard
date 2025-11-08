@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useTcbData } from './hooks/useTcbData';
 import StickyNote from './components/StickyNote';
 import AddNoteForm from './components/AddTopicForm';
-import { isTcbConfigured, tcbApp } from './tcbConfig';
+import { getTcbApp, isTcbConfigured } from './tcbConfig';
 import { Note } from './types';
 
 function TcbConfigMessage() {
@@ -62,6 +62,7 @@ function App() {
   }, [notes, draggingNote]);
 
   const handleFormSubmit = async (promptText: string) => {
+    const tcbApp = getTcbApp();
     if (!tcbApp) return;
     setIsProcessing(true);
     setLoadingMessage("Thinking...");
