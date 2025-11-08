@@ -1,4 +1,3 @@
-
 export interface Note {
   id: string;
   type: 'text' | 'image';
@@ -10,7 +9,7 @@ export interface Note {
   zIndex: number;
 }
 
-// FIX: Add and export the missing Topic interface, which is used by TopicBoard.tsx.
+// FIX: Add missing Topic interface.
 export interface Topic {
   id: string;
   title: string;
