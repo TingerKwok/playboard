@@ -1,37 +1,10 @@
+// FIX: Refactor application to use Gemini API and local storage instead of Tencent CloudBase.
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useTcbData } from './hooks/useTcbData';
+import { GoogleGenAI, Modality } from '@google/genai';
+import useLocalStorage from './hooks/useLocalStorage';
 import StickyNote from './components/StickyNote';
 import AddNoteForm from './components/AddTopicForm';
-import { isTcbConfigured, tcbApp } from './tcbConfig';
 import { Note } from './types';
-
-function TcbConfigMessage() {
-  return (
-    <div className="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg shadow-2xl p-8 max-w-lg w-full text-center">
-        <h2 className="text-2xl font-bold text-red-600 dark:text-red-500 mb-4">Action Required: Configure Tencent CloudBase</h2>
-        <p className="mb-4">
-          This collaborative board requires Tencent CloudBase (TCB) to function.
-        </p>
-        <p className="mb-6">
-          Please open the <code className="bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono">tcbConfig.ts</code> file and replace the placeholder with your TCB Environment ID.
-        </p>
-        <a 
-          href="https://console.cloud.tencent.com/tcb/env/index" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="inline-block bg-orange-500 text-white font-semibold rounded-lg shadow-md px-6 py-3 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 dark:focus:ring-offset-gray-800 transition-transform transform hover:scale-105"
-        >
-          Go to TCB Console
-        </a>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-6">
-          After configuring, please follow the instructions in README.md to set up the database collection and cloud function.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 
 function LoadingOverlay({ message }: { message: string }) {
   return (
@@ -47,13 +20,28 @@ function LoadingOverlay({ message }: { message: string }) {
   );
 }
 
+const noteColors = [
+  'bg-orange-200 dark:bg-orange-700',
+  'bg-amber-200 dark:bg-amber-700',
+  'bg-rose-200 dark:bg-rose-700',
+  'bg-sky-200 dark:bg-sky-700',
+  'bg-lime-200 dark:bg-lime-700',
+  'bg-yellow-200 dark:bg-yellow-600',
+];
+
+const rotations = ['-rotate-2', 'rotate-2', '-rotate-1', 'rotate-1', '-rotate-3', 'rotate-3'];
+
 function App() {
-  const { notes, addNote, deleteNote, updateNote } = useTcbData();
+  // FIX: Use local storage for persistence instead of a cloud database.
+  const [notes, setNotes] = useLocalStorage<Note[]>('gemini-playboard-notes', []);
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggingNote, setDraggingNote] = useState<{ id: string; offsetX: number; offsetY: number; width: number; height: number; } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Thinking...");
   const whiteboardRef = useRef<HTMLDivElement>(null);
+  
+  // FIX: Initialize Gemini AI client.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   useEffect(() => {
     if (!draggingNote) {
@@ -61,34 +49,75 @@ function App() {
     }
   }, [notes, draggingNote]);
 
+  // FIX: Implement note management functions to work with local storage state.
+  const addNote = useCallback((content: string, type: 'text' | 'image') => {
+    const maxZ = notes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
+    const newNote: Note = {
+      id: `${Date.now()}-${Math.random()}`,
+      content,
+      type,
+      x: window.innerWidth / 2 - 100 + (Math.random() * 100 - 50),
+      y: window.innerHeight / 3 + (Math.random() * 100 - 50),
+      color: type === 'image' 
+        ? 'bg-white dark:bg-gray-200' 
+        : noteColors[Math.floor(Math.random() * noteColors.length)],
+      rotation: type === 'image' 
+        ? '' 
+        : rotations[Math.floor(Math.random() * rotations.length)],
+      zIndex: maxZ + 1,
+    };
+    setNotes(prev => [...prev, newNote]);
+  }, [notes, setNotes]);
+
+  const deleteNote = useCallback((noteId: string) => {
+    setNotes(prev => prev.filter(n => n.id !== noteId));
+  }, [setNotes]);
+
+  const updateNote = useCallback((noteId: string, newValues: Partial<Omit<Note, 'id'>>) => {
+    setNotes(prev => prev.map(n => n.id === noteId ? { ...n, ...newValues } : n));
+  }, [setNotes]);
+
+  // FIX: Replace TCB cloud function call with direct Gemini API calls.
   const handleFormSubmit = async (promptText: string) => {
-    if (!tcbApp) return;
     setIsProcessing(true);
     setLoadingMessage("Thinking...");
 
     try {
-      const res = await tcbApp.callFunction({
-        name: 'hunyuan',
-        data: { promptText },
+      const classificationPrompt = `Is the following an English noun or a simple noun phrase that can be depicted as a single object? Answer only with "yes" or "no". Text: "${promptText}"`;
+      const classificationResult = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: classificationPrompt,
       });
 
-      if (!res.result || res.result.error) {
-          throw new Error(res.result?.error || 'Cloud function returned an unexpected error.');
-      }
-      
-      const { type, content } = res.result;
+      const classification = classificationResult.text.trim().toLowerCase();
+      const isNoun = classification.includes('yes');
 
-      if (type === 'image') {
+      if (isNoun) {
         setLoadingMessage("Creating your image...");
-        const imageUrl = `data:image/png;base64,${content}`;
-        addNote(imageUrl, 'image');
+        const imagePrompt = `A simple, cute, cartoon-style icon of a "${promptText}". Centered on a clean, white background.`;
+        const imageResponse = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: { parts: [{ text: imagePrompt }] },
+          config: {
+            responseModalities: [Modality.IMAGE],
+          },
+        });
+
+        for (const part of imageResponse.candidates[0].content.parts) {
+          if (part.inlineData) {
+            const base64ImageBytes: string = part.inlineData.data;
+            const imageUrl = `data:image/png;base64,${base64ImageBytes}`;
+            addNote(imageUrl, 'image');
+            return;
+          }
+        }
+        throw new Error("Image generation did not return an image part.");
       } else {
-        addNote(content, 'text');
+        addNote(promptText, 'text');
       }
     } catch (error) {
       console.error("Processing failed:", error);
       alert("Sorry, something went wrong. Please try again!");
-      // As a fallback, create a text note with the original prompt
       addNote(promptText, 'text');
     } finally {
       setIsProcessing(false);
@@ -147,10 +176,6 @@ function App() {
     
     setDraggingNote(null);
   }, [draggingNote, updateNote, localNotes]);
-  
-  if (!isTcbConfigured) {
-    return <TcbConfigMessage />;
-  }
 
   return (
     <div className="min-h-screen font-sans">

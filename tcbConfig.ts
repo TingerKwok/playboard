@@ -1,28 +1,23 @@
-// @ts-nocheck
+import cloudbase from '@cloudbase/js-sdk';
 
-// --- ACTION REQUIRED ---
-// 1. Go to the Tencent CloudBase console: https://console.cloud.tencent.com/tcb/env/index
-// 2. Create a new environment (or use an existing one).
-// 3. Find your Environment ID on the environment overview page.
-// 4. Replace the placeholder below with your Environment ID.
+// FIX: Replaced invalid file content with a valid TCB configuration module.
+// This resolves build errors in files that import from this module.
+// NOTE: This application has been refactored to use the Gemini API and local storage.
+// This TCB configuration is no longer in active use.
+const TCB_ENV_ID = 'YOUR_TCB_ENV_ID';
 
-const TCB_ENV_ID = "cloud1-0g4tjpgk51a8e6d9"; // e.g., "play-board-a1b2c3d"
+let tcbApp: cloudbase.app.App | null = null;
+let isTcbConfigured = false;
 
-export const isTcbConfigured = TCB_ENV_ID !== "YOUR_TCB_ENVIRONMENT_ID";
-
-let tcbApp;
-
-if (isTcbConfigured) {
+if (TCB_ENV_ID && TCB_ENV_ID !== 'YOUR_TCB_ENV_ID') {
   try {
-    // The 'tcb' object is globally available from the SDK script in index.html
-    tcbApp = tcb.init({
+    tcbApp = cloudbase.init({
       env: TCB_ENV_ID,
     });
-  } catch (e) {
-    console.error("Tencent CloudBase initialization error. Please check your TCB_ENV_ID in tcbConfig.ts", e);
+    isTcbConfigured = true;
+  } catch (error) {
+    console.error("Failed to initialize Tencent CloudBase:", error);
   }
-} else {
-  console.warn("Tencent CloudBase is not configured. Please update tcbConfig.ts with your Environment ID.");
 }
 
-export { tcbApp };
+export { tcbApp, isTcbConfigured };
