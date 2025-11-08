@@ -20,8 +20,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Caveat&display=swap" rel="stylesheet">
-    <!-- Load Tencent CloudBase SDK -->
-    <script src="https://web.sdk.qcloud.com/js/sdk/1.3.1/tcb.js"></script>
+    <!-- Load Tencent CloudBase SDK with defer to ensure ordered execution -->
+    <script id="tcb-sdk-script" src="https://web.sdk.qcloud.com/js/sdk/1.3.1/tcb.js" defer></script>
     <script type="importmap">
 {
   "imports": {
@@ -38,21 +38,7 @@
 </head>
   <body class="bg-orange-50 dark:bg-slate-900">
     <div id="root"></div>
-    <script type="module">
-      // This function will dynamically import and run our React app.
-      function startApp() {
-        import('/index.tsx');
-      }
-
-      // We need to wait for the tcb.js script to load and define the global `tcb` object.
-      // A reliable way is to check for its existence periodically.
-      const checkTcbInterval = setInterval(() => {
-        // @ts-ignore
-        if (window.tcb) {
-          clearInterval(checkTcbInterval);
-          startApp();
-        }
-      }, 50); // Check every 50ms
-    </script>
+    <!-- Load the main app script with defer. It will execute after the TCB SDK. -->
+    <script type="module" src="/index.tsx" defer></script>
   </body>
 </html>
