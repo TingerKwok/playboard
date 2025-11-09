@@ -24,8 +24,8 @@ const AddNoteForm: React.FC<AddNoteFormProps> = ({ onCreateText, onCreateImage }
   }
 
   return (
-    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg p-4 z-50">
-      <div className="bg-orange-50/80 dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-xl shadow-2xl">
+    <div className="p-4 z-10">
+      <div className="bg-orange-50/80 dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-xl shadow-2xl max-w-lg mx-auto">
         <form onSubmit={handleSubmit} className="flex items-center gap-3">
           <input
             type="text"

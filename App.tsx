@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSupabaseData } from './hooks/useSupabaseData';
 import StickyNote from './components/StickyNote';
 import AddNoteForm from './components/AddTopicForm';
+import DrawingControls from './components/DrawingControls'; // Import new component
+import useCanvasDrawing from './hooks/useCanvasDrawing'; // Import new hook
 import { isSupabaseConfigured } from './supabaseClient';
 import { Note } from './types';
 
@@ -19,7 +21,7 @@ function AppConfigMessage() {
             <p className="text-sm">
               {isSupabaseConfigured 
                 ? "Supabase client is configured." 
-                : "Please open supabaseClient.ts and add your project URL and anon key."
+                : "Please open supabaseClient.ts and add your project URL and an on key."
               }
             </p>
           </div>
@@ -48,14 +50,15 @@ function App() {
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggingNote, setDraggingNote] = useState<{ id: string; offsetX: number; offsetY: number; width: number; height: number; } | null>(null);
   const whiteboardRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null); // Ref for the drawing canvas
   const draggedElementRef = useRef<HTMLDivElement | null>(null);
   const dragPositionRef = useRef({ x: 0, y: 0 });
-
-  // Refs for managing drag state and queuing updates
   const isDraggingRef = useRef(false);
   const pendingUpdatesRef = useRef<((notes: Note[]) => Note[])[]>([]);
 
-  // Helper to queue state updates that occur during a drag to prevent re-renders
+  // Setup canvas drawing hooks and state
+  const { penColor, setPenColor, clearCanvas } = useCanvasDrawing(canvasRef);
+
   const queueOrSetNotes = useCallback((updateFn: (prevNotes: Note[]) => Note[]) => {
     if (isDraggingRef.current) {
       pendingUpdatesRef.current.push(updateFn);
@@ -65,7 +68,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // When notes from Supabase change, queue the update if a drag is in progress
     queueOrSetNotes(() => notes);
   }, [notes, queueOrSetNotes]);
 
@@ -107,13 +109,11 @@ function App() {
     const optimisticNote = createOptimisticNote('text', promptText, tempId);
     setLocalNotes(prev => [...prev, optimisticNote]);
 
-    // Run persistence in the background
     (async () => {
       const savedNote = await addNote(promptText, 'text');
       if (savedNote) {
         queueOrSetNotes(prev => prev.map(n => n.id === tempId ? { ...savedNote, status: 'saved' } : n));
       } else {
-        // On failure, remove the optimistic note
         queueOrSetNotes(prev => prev.filter(n => n.id !== tempId));
         alert("Sorry, we couldn't save your note. Please try again.");
       }
@@ -124,11 +124,9 @@ function App() {
     if (!isSupabaseConfigured) return;
 
     const tempId = `temp-${Date.now()}`;
-    // Create a placeholder note and add it to the UI instantly
     const placeholderNote = createOptimisticNote('image', '', tempId, 'pending');
     setLocalNotes(prev => [...prev, placeholderNote]);
 
-    // Run the full generation and persistence flow in the background
     (async () => {
       try {
         const classificationResponse = await fetch("/api/proxy", {
@@ -167,30 +165,25 @@ function App() {
               throw new Error("Image data not found in response.");
           }
         } else {
-          // If not a noun, create a text note instead and remove placeholder
           alert("Sorry, that didn't look like something we can draw. Your original text will be added as a note instead.");
-          queueOrSetNotes(prev => prev.filter(n => n.id !== tempId)); // Remove placeholder
-          handleCreateTextNote(promptText); // Create a text note
+          queueOrSetNotes(prev => prev.filter(n => n.id !== tempId));
+          handleCreateTextNote(promptText);
         }
       } catch (error) {
         console.error("Processing failed:", error);
         alert("Sorry, something went wrong. Please try again!");
-        queueOrSetNotes(prev => prev.filter(n => n.id !== tempId)); // Clean up placeholder on any error
+        queueOrSetNotes(prev => prev.filter(n => n.id !== tempId));
       }
     })();
   };
 
   const handleDeleteNote = useCallback((noteId: string) => {
-    // Optimistically remove from local state first
     setLocalNotes(prevNotes => prevNotes.filter(note => note.id !== noteId));
-    // Then delete from database in the background
     deleteNote(noteId);
   }, [deleteNote]);
 
   const handleClearBoard = useCallback(() => {
     if (localNotes.length === 0) return;
-    // The confirmation dialog is blocked in this sandboxed environment.
-    // Proceeding directly with the clear action.
     setLocalNotes([]);
     clearAllNotes();
   }, [localNotes.length, clearAllNotes]);
@@ -202,20 +195,17 @@ function App() {
 
         if (targetNote && targetNote.zIndex <= maxZ) {
             const newZIndex = maxZ + 1;
-            // Update database in the background
             updateNote(noteId, { zIndex: newZIndex });
-            // Optimistically update local state and return it
             return prevNotes
                 .map(n => (n.id === noteId ? { ...n, zIndex: newZIndex } : n))
                 .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
         }
-        // If no change is needed, return the original state
         return prevNotes;
     });
   }, [updateNote]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, noteId: string) => {
-    isDraggingRef.current = true; // Set the drag lock ON
+    isDraggingRef.current = true;
     pauseSubscription();
     const noteElement = e.currentTarget;
     draggedElementRef.current = noteElement;
@@ -255,30 +245,24 @@ function App() {
     const finalPosition = dragPositionRef.current;
     const draggedNoteId = draggingNote.id;
     
-    // Persist final position to DB
     updateNote(draggedNoteId, { x: finalPosition.x, y: finalPosition.y });
     
-    // Clean up drag state
     setDraggingNote(null);
     draggedElementRef.current = null;
     resumeSubscription();
     
-    // Set lock OFF before processing updates
     isDraggingRef.current = false;
 
-    // Apply all updates (drag position + any queued updates) in a single render
     setLocalNotes(currentNotes => {
-      // 1. Apply the position update from the completed drag
       let newNotes = currentNotes.map(n => 
         n.id === draggedNoteId ? { ...n, x: finalPosition.x, y: finalPosition.y } : n
       );
 
-      // 2. Apply all queued updates from the background
       if (pendingUpdatesRef.current.length > 0) {
         pendingUpdatesRef.current.forEach(updateFn => {
           newNotes = updateFn(newNotes);
         });
-        pendingUpdatesRef.current = []; // Clear the queue after applying
+        pendingUpdatesRef.current = [];
       }
       
       return newNotes;
@@ -291,8 +275,13 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen font-sans">
-      <header className="relative text-center py-4 bg-orange-100/50 dark:bg-slate-800/50 backdrop-blur-sm fixed top-0 left-0 right-0 z-20">
+    <div className="h-screen font-sans flex flex-col">
+      <header className="relative text-center py-4 bg-orange-100/50 dark:bg-slate-800/50 backdrop-blur-sm z-20">
+        <DrawingControls 
+          currentColor={penColor}
+          onColorChange={setPenColor}
+          onClear={clearCanvas}
+        />
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white" style={{ fontFamily: "'Caveat', cursive" }}>
           Play Board
         </h1>
@@ -300,8 +289,8 @@ function App() {
             onClick={handleClearBoard}
             disabled={localNotes.length === 0}
             className="absolute top-1/2 right-4 -translate-y-1/2 p-2 rounded-full text-gray-500 hover:bg-gray-200 hover:text-red-600 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-500 dark:disabled:hover:text-gray-400"
-            aria-label="Clear board"
-            title="Clear board"
+            aria-label="Clear all notes"
+            title="Clear all notes"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -314,8 +303,12 @@ function App() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        className="relative w-full h-screen overflow-hidden pt-16"
+        className="relative flex-grow w-full overflow-hidden cursor-crosshair"
       >
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 z-0"
+        />
         {localNotes.map(note => (
           <StickyNote
             key={note.id}
@@ -329,7 +322,7 @@ function App() {
              <div className="text-center p-10">
                 <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">Whiteboard is Empty</h2>
                 <p className="mt-2 text-gray-500 dark:text-gray-400">
-                  Type something below to get started!
+                  Type something below or draw on the board to get started!
                 </p>
               </div>
            </div>
