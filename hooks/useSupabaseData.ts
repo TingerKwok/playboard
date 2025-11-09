@@ -16,7 +16,7 @@ const rotations = ['-rotate-2', 'rotate-2', '-rotate-1', 'rotate-1', '-rotate-3'
 
 export function useSupabaseData() {
   const [notes, setNotes] = useState<Note[]>([]);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const isPausedRef = useRef(false); // The lightweight "mute" switch
 
   const fetchNotes = useCallback(async () => {
     if (!supabase) return;
@@ -29,16 +29,12 @@ export function useSupabaseData() {
   }, []);
 
   const pauseSubscription = useCallback(() => {
-    channelRef.current?.unsubscribe();
+    isPausedRef.current = true;
   }, []);
 
   const resumeSubscription = useCallback(() => {
-    channelRef.current?.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        fetchNotes();
-      }
-    });
-  }, [fetchNotes]);
+    isPausedRef.current = false;
+  }, []);
 
 
   useEffect(() => {
@@ -52,13 +48,14 @@ export function useSupabaseData() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notes' },
         () => {
-          fetchNotes();
+          // Only fetch notes if the subscription is not "muted"
+          if (!isPausedRef.current) {
+            fetchNotes();
+          }
         }
       )
       .subscribe();
       
-    channelRef.current = channel;
-
     return () => {
       supabase.removeChannel(channel);
     };
