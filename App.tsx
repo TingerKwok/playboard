@@ -1,32 +1,43 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useTcbData } from './hooks/useTcbData';
+import { useSupabaseData } from './hooks/useSupabaseData';
 import StickyNote from './components/StickyNote';
 import AddNoteForm from './components/AddTopicForm';
-import { isTcbConfigured, tcbApp } from './tcbConfig';
+import { isSupabaseConfigured } from './supabaseClient';
 import { Note } from './types';
 
-function TcbConfigMessage() {
+function AppConfigMessage() {
   return (
     <div className="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg shadow-2xl p-8 max-w-lg w-full text-center">
-        <h2 className="text-2xl font-bold text-red-600 dark:text-red-500 mb-4">Action Required: Configure Tencent CloudBase</h2>
-        <p className="mb-4">
-          This collaborative board requires Tencent CloudBase (TCB) to function.
-        </p>
+      <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg shadow-2xl p-8 max-w-lg w-full">
+        <h2 className="text-2xl font-bold text-red-600 dark:text-red-500 mb-4">Action Required: Configuration Needed</h2>
         <p className="mb-6">
-          Please open the <code className="bg-gray-200 dark:bg-gray-700 rounded px-2 py-1 text-sm font-mono">tcbConfig.ts</code> file and replace the placeholder with your TCB Environment ID.
+          This collaborative board requires a Supabase project to function. Please follow the steps in the README file to set it up. The SiliconFlow API key should be set in your Cloudflare project settings.
         </p>
+        <div className="space-y-4 text-left">
+          <div className={`p-3 rounded-lg ${isSupabaseConfigured ? 'bg-green-100 dark:bg-green-900' : 'bg-red-100 dark:bg-red-900'}`}>
+            <h3 className="font-bold text-lg">{isSupabaseConfigured ? '✔' : '❌'} Supabase Configuration</h3>
+            <p className="text-sm">
+              {isSupabaseConfigured 
+                ? "Supabase client is configured." 
+                : "Please open supabaseClient.ts and add your project URL and anon key."
+              }
+            </p>
+          </div>
+           <div className={`p-3 rounded-lg bg-blue-100 dark:bg-blue-900`}>
+            <h3 className="font-bold text-lg">ℹ️ SiliconFlow API Key</h3>
+            <p className="text-sm">
+              Your API key must be configured as a secret environment variable in your Cloudflare project settings. See the README for instructions.
+            </p>
+          </div>
+        </div>
         <a 
-          href="https://console.cloud.tencent.com/tcb/env/index" 
+          href="https://github.com/google-gemini-vignettes/play-board/blob/main/README.md"
           target="_blank" 
           rel="noopener noreferrer"
-          className="inline-block bg-orange-500 text-white font-semibold rounded-lg shadow-md px-6 py-3 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 dark:focus:ring-offset-gray-800 transition-transform transform hover:scale-105"
+          className="inline-block mt-6 bg-orange-500 text-white font-semibold rounded-lg shadow-md px-6 py-3 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 dark:focus:ring-offset-gray-800 transition-transform transform hover:scale-105"
         >
-          Go to TCB Console
+          View README Instructions
         </a>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-6">
-          After configuring, please follow the instructions in README.md to set up the database collection and cloud function.
-        </p>
       </div>
     </div>
   );
@@ -48,7 +59,7 @@ function LoadingOverlay({ message }: { message: string }) {
 }
 
 function App() {
-  const { notes, addNote, deleteNote, updateNote } = useTcbData();
+  const { notes, addNote, deleteNote, updateNote } = useSupabaseData();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggingNote, setDraggingNote] = useState<{ id: string; offsetX: number; offsetY: number; width: number; height: number; } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -62,33 +73,55 @@ function App() {
   }, [notes, draggingNote]);
 
   const handleFormSubmit = async (promptText: string) => {
-    if (!tcbApp) return;
+    if (!isSupabaseConfigured) return;
     setIsProcessing(true);
     setLoadingMessage("Thinking...");
 
     try {
-      const res = await tcbApp.callFunction({
-        name: 'hunyuan',
-        data: { promptText },
+      // Step 1: Call our secure proxy to classify the prompt
+      const classificationResponse = await fetch("/api/proxy", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'classify', prompt: promptText })
       });
 
-      if (!res.result || res.result.error) {
-          throw new Error(res.result?.error || 'Cloud function returned an unexpected error.');
+      if (!classificationResponse.ok) {
+        throw new Error(`Classification failed: ${await classificationResponse.text()}`);
       }
       
-      const { type, content } = res.result;
+      const classificationData = await classificationResponse.json();
+      const classification = classificationData.choices[0].message.content.trim().toLowerCase();
+      const isNoun = classification.includes('yes');
 
-      if (type === 'image') {
+      // Step 2: Generate image or add text
+      if (isNoun) {
         setLoadingMessage("Creating your image...");
-        const imageUrl = `data:image/png;base64,${content}`;
-        addNote(imageUrl, 'image');
+        // Step 2a: Call our secure proxy to generate an image
+        const imageResponse = await fetch("/api/proxy", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'generate', prompt: promptText })
+        });
+
+        if (!imageResponse.ok) {
+            throw new Error(`Image generation failed: ${await imageResponse.text()}`);
+        }
+
+        const imageData = await imageResponse.json();
+        
+        if (imageData.data && imageData.data[0].b64_json) {
+            const imageUrl = `data:image/png;base64,${imageData.data[0].b64_json}`;
+            addNote(imageUrl, 'image');
+        } else {
+            throw new Error("Image data not found in response.");
+        }
+
       } else {
-        addNote(content, 'text');
+        addNote(promptText, 'text');
       }
     } catch (error) {
       console.error("Processing failed:", error);
-      alert("Sorry, something went wrong. Please try again!");
-      // As a fallback, create a text note with the original prompt
+      alert("Sorry, something went wrong. Please try again! Your original text will be added as a note.");
       addNote(promptText, 'text');
     } finally {
       setIsProcessing(false);
@@ -148,8 +181,8 @@ function App() {
     setDraggingNote(null);
   }, [draggingNote, updateNote, localNotes]);
   
-  if (!isTcbConfigured) {
-    return <TcbConfigMessage />;
+  if (!isSupabaseConfigured) {
+    return <AppConfigMessage />;
   }
 
   return (
