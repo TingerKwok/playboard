@@ -51,9 +51,23 @@ function App() {
   const draggedElementRef = useRef<HTMLDivElement | null>(null);
   const dragPositionRef = useRef({ x: 0, y: 0 });
 
+  // Refs for managing drag state and queuing updates
+  const isDraggingRef = useRef(false);
+  const pendingUpdatesRef = useRef<((notes: Note[]) => Note[])[]>([]);
+
+  // Helper to queue state updates that occur during a drag to prevent re-renders
+  const queueOrSetNotes = useCallback((updateFn: (prevNotes: Note[]) => Note[]) => {
+    if (isDraggingRef.current) {
+      pendingUpdatesRef.current.push(updateFn);
+    } else {
+      setLocalNotes(updateFn);
+    }
+  }, []);
+
   useEffect(() => {
-    setLocalNotes(notes);
-  }, [notes]);
+    // When notes from Supabase change, queue the update if a drag is in progress
+    queueOrSetNotes(() => notes);
+  }, [notes, queueOrSetNotes]);
 
   const createOptimisticNote = (
     type: 'text' | 'image',
@@ -97,10 +111,10 @@ function App() {
     (async () => {
       const savedNote = await addNote(promptText, 'text');
       if (savedNote) {
-        setLocalNotes(prev => prev.map(n => n.id === tempId ? { ...savedNote, status: 'saved' } : n));
+        queueOrSetNotes(prev => prev.map(n => n.id === tempId ? { ...savedNote, status: 'saved' } : n));
       } else {
         // On failure, remove the optimistic note
-        setLocalNotes(prev => prev.filter(n => n.id !== tempId));
+        queueOrSetNotes(prev => prev.filter(n => n.id !== tempId));
         alert("Sorry, we couldn't save your note. Please try again.");
       }
     })();
@@ -145,7 +159,7 @@ function App() {
               const imageUrl = `data:image/png;base64,${imageData.data[0].b64_json}`;
               const savedNote = await addNote(imageUrl, 'image');
               if (savedNote) {
-                setLocalNotes(prev => prev.map(n => n.id === tempId ? { ...savedNote, status: 'saved' } : n));
+                queueOrSetNotes(prev => prev.map(n => n.id === tempId ? { ...savedNote, status: 'saved' } : n));
               } else {
                 throw new Error("Failed to save the generated image to the database.");
               }
@@ -155,13 +169,13 @@ function App() {
         } else {
           // If not a noun, create a text note instead and remove placeholder
           alert("Sorry, that didn't look like something we can draw. Your original text will be added as a note instead.");
-          setLocalNotes(prev => prev.filter(n => n.id !== tempId)); // Remove placeholder
+          queueOrSetNotes(prev => prev.filter(n => n.id !== tempId)); // Remove placeholder
           handleCreateTextNote(promptText); // Create a text note
         }
       } catch (error) {
         console.error("Processing failed:", error);
         alert("Sorry, something went wrong. Please try again!");
-        setLocalNotes(prev => prev.filter(n => n.id !== tempId)); // Clean up placeholder on any error
+        queueOrSetNotes(prev => prev.filter(n => n.id !== tempId)); // Clean up placeholder on any error
       }
     })();
   };
@@ -193,6 +207,7 @@ function App() {
   }, [updateNote]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, noteId: string) => {
+    isDraggingRef.current = true; // Set the drag lock ON
     pauseSubscription();
     const noteElement = e.currentTarget;
     draggedElementRef.current = noteElement;
@@ -230,18 +245,37 @@ function App() {
     if (!draggingNote) return;
 
     const finalPosition = dragPositionRef.current;
+    const draggedNoteId = draggingNote.id;
     
-    setLocalNotes(prevNotes => 
-      prevNotes.map(n => 
-        n.id === draggingNote.id ? { ...n, x: finalPosition.x, y: finalPosition.y } : n
-      )
-    );
-
-    updateNote(draggingNote.id, { x: finalPosition.x, y: finalPosition.y });
+    // Persist final position to DB
+    updateNote(draggedNoteId, { x: finalPosition.x, y: finalPosition.y });
     
+    // Clean up drag state
     setDraggingNote(null);
     draggedElementRef.current = null;
     resumeSubscription();
+    
+    // Set lock OFF before processing updates
+    isDraggingRef.current = false;
+
+    // Apply all updates (drag position + any queued updates) in a single render
+    setLocalNotes(currentNotes => {
+      // 1. Apply the position update from the completed drag
+      let newNotes = currentNotes.map(n => 
+        n.id === draggedNoteId ? { ...n, x: finalPosition.x, y: finalPosition.y } : n
+      );
+
+      // 2. Apply all queued updates from the background
+      if (pendingUpdatesRef.current.length > 0) {
+        pendingUpdatesRef.current.forEach(updateFn => {
+          newNotes = updateFn(newNotes);
+        });
+        pendingUpdatesRef.current = []; // Clear the queue after applying
+      }
+      
+      return newNotes;
+    });
+
   }, [draggingNote, updateNote, resumeSubscription]);
   
   if (!isSupabaseConfigured) {
