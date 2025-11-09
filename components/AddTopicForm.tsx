@@ -3,10 +3,9 @@ import React, { useState } from 'react';
 interface AddNoteFormProps {
   onCreateText: (content: string) => void;
   onCreateImage: (content: string) => void;
-  isProcessing: boolean;
 }
 
-const AddNoteForm: React.FC<AddNoteFormProps> = ({ onCreateText, onCreateImage, isProcessing }) => {
+const AddNoteForm: React.FC<AddNoteFormProps> = ({ onCreateText, onCreateImage }) => {
   const [content, setContent] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -35,12 +34,11 @@ const AddNoteForm: React.FC<AddNoteFormProps> = ({ onCreateText, onCreateImage, 
             placeholder="What's on your mind?"
             className="flex-grow p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50/80 dark:bg-gray-700/80 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-orange-500 focus:outline-none transition"
             aria-label="New note content"
-            disabled={isProcessing}
           />
           <button
             type="submit"
             className="px-5 py-3 bg-orange-500 text-white font-semibold rounded-lg shadow-md hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 dark:focus:ring-offset-gray-800 transition-colors disabled:bg-orange-400 disabled:cursor-not-allowed"
-            disabled={!content.trim() || isProcessing}
+            disabled={!content.trim()}
             aria-label="Add text note"
           >
             Add Text
@@ -49,7 +47,7 @@ const AddNoteForm: React.FC<AddNoteFormProps> = ({ onCreateText, onCreateImage, 
             type="button"
             onClick={handleImageClick}
             className="px-5 py-3 bg-sky-500 text-white font-semibold rounded-lg shadow-md hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:focus:ring-offset-gray-800 transition-colors disabled:bg-sky-400 disabled:cursor-not-allowed"
-            disabled={!content.trim() || isProcessing}
+            disabled={!content.trim()}
             aria-label="Create image from note"
           >
             Image

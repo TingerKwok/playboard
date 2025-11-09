@@ -7,6 +7,7 @@ export interface Note {
   color: string;
   rotation: string;
   zIndex: number;
+  status?: 'pending' | 'saved';
 }
 
 // FIX: Add missing Topic interface.

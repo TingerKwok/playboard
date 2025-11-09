@@ -43,111 +43,138 @@ function AppConfigMessage() {
   );
 }
 
-
-function LoadingOverlay({ message }: { message: string }) {
-  return (
-    <div className="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-[100] p-4 text-white">
-      <div className="flex flex-col items-center gap-4">
-        <svg className="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        <p className="text-xl font-semibold">{message}</p>
-      </div>
-    </div>
-  );
-}
-
 function App() {
   const { notes, addNote, deleteNote, updateNote, pauseSubscription, resumeSubscription } = useSupabaseData();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggingNote, setDraggingNote] = useState<{ id: string; offsetX: number; offsetY: number; width: number; height: number; } | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState("Thinking...");
   const whiteboardRef = useRef<HTMLDivElement>(null);
   const draggedElementRef = useRef<HTMLDivElement | null>(null);
   const dragPositionRef = useRef({ x: 0, y: 0 });
 
-  // This effect now simply syncs the local state with the data from the hook.
-  // The complex logic to prevent race conditions is no longer needed because
-  // the subscription is paused during drag operations.
   useEffect(() => {
     setLocalNotes(notes);
   }, [notes]);
 
-  const handleCreateTextNote = (promptText: string) => {
-    if (!isSupabaseConfigured) return;
-    addNote(promptText, 'text');
+  const createOptimisticNote = (
+    type: 'text' | 'image',
+    content: string,
+    tempId: string,
+    status: 'pending' | 'saved' = 'pending'
+  ): Note => {
+    const maxZ = localNotes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
+    const noteColors = [
+      'bg-orange-200 dark:bg-orange-700', 'bg-amber-200 dark:bg-amber-700',
+      'bg-rose-200 dark:bg-rose-700', 'bg-sky-200 dark:bg-sky-700',
+      'bg-lime-200 dark:bg-lime-700', 'bg-yellow-200 dark:bg-yellow-600',
+    ];
+    const rotations = ['-rotate-2', 'rotate-2', '-rotate-1', 'rotate-1', '-rotate-3', 'rotate-3'];
+
+    return {
+      id: tempId,
+      content,
+      type,
+      x: window.innerWidth / 2 - 100 + (Math.random() * 100 - 50),
+      y: window.innerHeight / 3 + (Math.random() * 100 - 50),
+      color: type === 'image' 
+        ? 'bg-white dark:bg-gray-200' 
+        : noteColors[Math.floor(Math.random() * noteColors.length)],
+      rotation: type === 'image' 
+        ? '' 
+        : rotations[Math.floor(Math.random() * rotations.length)],
+      zIndex: maxZ + 1,
+      status,
+    };
   };
 
-  const handleCreateImageNote = async (promptText: string) => {
+  const handleCreateTextNote = (promptText: string) => {
     if (!isSupabaseConfigured) return;
-    setIsProcessing(true);
-    setLoadingMessage("Thinking...");
 
-    try {
-      // Step 1: Call our secure proxy to classify the prompt
-      const classificationResponse = await fetch("/api/proxy", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'classify', prompt: promptText })
-      });
+    const tempId = `temp-${Date.now()}`;
+    const optimisticNote = createOptimisticNote('text', promptText, tempId);
+    setLocalNotes(prev => [...prev, optimisticNote]);
 
-      if (!classificationResponse.ok) {
-        throw new Error(`Classification failed: ${await classificationResponse.text()}`);
+    // Run persistence in the background
+    (async () => {
+      const savedNote = await addNote(promptText, 'text');
+      if (savedNote) {
+        setLocalNotes(prev => prev.map(n => n.id === tempId ? { ...savedNote, status: 'saved' } : n));
+      } else {
+        // On failure, remove the optimistic note
+        setLocalNotes(prev => prev.filter(n => n.id !== tempId));
+        alert("Sorry, we couldn't save your note. Please try again.");
       }
-      
-      const classificationData = await classificationResponse.json();
-      const classification = classificationData.choices[0].message.content.trim().toLowerCase();
-      const isNoun = classification.includes('yes');
+    })();
+  };
 
-      // Step 2: Generate image or add text
-      if (isNoun) {
-        setLoadingMessage("Creating your image...");
-        // Step 2a: Call our secure proxy to generate an image
-        const imageResponse = await fetch("/api/proxy", {
+  const handleCreateImageNote = (promptText: string) => {
+    if (!isSupabaseConfigured) return;
+
+    const tempId = `temp-${Date.now()}`;
+    // Create a placeholder note and add it to the UI instantly
+    const placeholderNote = createOptimisticNote('image', '', tempId, 'pending');
+    setLocalNotes(prev => [...prev, placeholderNote]);
+
+    // Run the full generation and persistence flow in the background
+    (async () => {
+      try {
+        const classificationResponse = await fetch("/api/proxy", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'generate', prompt: promptText })
+          body: JSON.stringify({ action: 'classify', prompt: promptText })
         });
 
-        if (!imageResponse.ok) {
-            throw new Error(`Image generation failed: ${await imageResponse.text()}`);
-        }
+        if (!classificationResponse.ok) throw new Error(`Classification failed: ${await classificationResponse.text()}`);
+        
+        const classificationData = await classificationResponse.json();
+        const classification = classificationData.choices[0].message.content.trim().toLowerCase();
+        const isNoun = classification.includes('yes');
 
-        const imageData = await imageResponse.json();
-        
-        if (imageData.error) {
-          throw new Error(`Server error: ${imageData.error}`);
-        }
-        
-        if (imageData.data && imageData.data[0].b64_json) {
-            const imageUrl = `data:image/png;base64,${imageData.data[0].b64_json}`;
-            addNote(imageUrl, 'image');
+        if (isNoun) {
+          const imageResponse = await fetch("/api/proxy", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'generate', prompt: promptText })
+          });
+
+          if (!imageResponse.ok) throw new Error(`Image generation failed: ${await imageResponse.text()}`);
+
+          const imageData = await imageResponse.json();
+          if (imageData.error) throw new Error(`Server error: ${imageData.error}`);
+          
+          if (imageData.data && imageData.data[0].b64_json) {
+              const imageUrl = `data:image/png;base64,${imageData.data[0].b64_json}`;
+              const savedNote = await addNote(imageUrl, 'image');
+              if (savedNote) {
+                setLocalNotes(prev => prev.map(n => n.id === tempId ? { ...savedNote, status: 'saved' } : n));
+              } else {
+                throw new Error("Failed to save the generated image to the database.");
+              }
+          } else {
+              throw new Error("Image data not found in response.");
+          }
         } else {
-            throw new Error("Image data not found in response.");
+          // If not a noun, create a text note instead and remove placeholder
+          alert("Sorry, that didn't look like something we can draw. Your original text will be added as a note instead.");
+          setLocalNotes(prev => prev.filter(n => n.id !== tempId)); // Remove placeholder
+          handleCreateTextNote(promptText); // Create a text note
         }
-
-      } else {
-        alert("Sorry, that didn't look like something we can draw. Your original text will be added as a note instead.");
-        addNote(promptText, 'text');
+      } catch (error) {
+        console.error("Processing failed:", error);
+        alert("Sorry, something went wrong. Please try again!");
+        setLocalNotes(prev => prev.filter(n => n.id !== tempId)); // Clean up placeholder on any error
       }
-    } catch (error) {
-      console.error("Processing failed:", error);
-      alert("Sorry, something went wrong. Please try again! Your original text will be added as a note.");
-      addNote(promptText, 'text');
-    } finally {
-      setIsProcessing(false);
-    }
+    })();
   };
 
   const handleDeleteNote = useCallback((noteId: string) => {
+    // Optimistically remove from local state first
     setLocalNotes(prevNotes => prevNotes.filter(note => note.id !== noteId));
+    // Then delete from database in the background
     deleteNote(noteId);
   }, [deleteNote]);
 
   const bringToFront = useCallback((noteId: string) => {
-    const currentNotes = localNotes;
+    const currentNotes = [...localNotes]; // Work with a copy
     const maxZ = currentNotes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
     const targetNote = currentNotes.find(n => n.id === noteId);
 
@@ -164,9 +191,7 @@ function App() {
   }, [localNotes, updateNote]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, noteId: string) => {
-    // Pause real-time updates to prevent interference during drag
     pauseSubscription();
-
     const noteElement = e.currentTarget;
     draggedElementRef.current = noteElement;
     const rect = noteElement.getBoundingClientRect();
@@ -187,7 +212,6 @@ function App() {
     if (!draggingNote || !whiteboardRef.current || !draggedElementRef.current) return;
     
     const whiteboardRect = whiteboardRef.current.getBoundingClientRect();
-    
     let x = e.clientX - whiteboardRect.left - draggingNote.offsetX;
     let y = e.clientY - whiteboardRect.top - draggingNote.offsetY;
 
@@ -195,7 +219,6 @@ function App() {
     y = Math.max(10, Math.min(y, whiteboardRect.height - draggingNote.height - 10));
     
     dragPositionRef.current = { x, y };
-
     const element = draggedElementRef.current;
     element.style.setProperty('--tw-translate-x', `${x}px`);
     element.style.setProperty('--tw-translate-y', `${y}px`);
@@ -216,10 +239,7 @@ function App() {
     
     setDraggingNote(null);
     draggedElementRef.current = null;
-    
-    // Resume real-time updates now that the drag is complete
     resumeSubscription();
-
   }, [draggingNote, updateNote, resumeSubscription]);
   
   if (!isSupabaseConfigured) {
@@ -228,7 +248,6 @@ function App() {
 
   return (
     <div className="min-h-screen font-sans">
-      {isProcessing && <LoadingOverlay message={loadingMessage} />}
       <header className="text-center py-4 bg-orange-100/50 dark:bg-slate-800/50 backdrop-blur-sm fixed top-0 left-0 right-0 z-20">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white" style={{ fontFamily: "'Caveat', cursive" }}>
           Play Board
@@ -250,7 +269,7 @@ function App() {
             onDelete={handleDeleteNote}
           />
         ))}
-        {localNotes.length === 0 && !isProcessing && (
+        {localNotes.length === 0 && (
            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
              <div className="text-center p-10">
                 <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">Whiteboard is Empty</h2>
@@ -265,7 +284,6 @@ function App() {
       <AddNoteForm 
         onCreateText={handleCreateTextNote} 
         onCreateImage={handleCreateImageNote} 
-        isProcessing={isProcessing} 
       />
     </div>
   );
