@@ -44,7 +44,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, onDelete, onMouseDown }) 
         X
       </button>
       {isTextNote && (
-        <p className="text-lg text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">{note.content}</p>
+        <p className="text-4xl text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">{note.content}</p>
       )}
       {note.type === 'image' && (
         <div className="w-full h-full flex items-center justify-center">

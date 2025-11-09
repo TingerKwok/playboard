@@ -88,14 +88,14 @@ export function useSupabaseData() {
   const deleteNote = useCallback(async (noteId: string) => {
     if (!supabase) return;
     // Don't delete optimistic notes from the DB as they don't exist there
-    if(noteId.startsWith('temp-')) return;
+    if(String(noteId).startsWith('temp-')) return;
     await supabase.from('notes').delete().eq('id', noteId);
   }, []);
 
   const updateNote = useCallback(async (noteId: string, newValues: Partial<Omit<Note, 'id'>>) => {
       if (!supabase) return;
       // Don't update optimistic notes in the DB as they don't exist there
-      if(noteId.startsWith('temp-')) return;
+      if(String(noteId).startsWith('temp-')) return;
       await supabase.from('notes').update(newValues).eq('id', noteId);
   }, []);
 

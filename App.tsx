@@ -174,21 +174,23 @@ function App() {
   }, [deleteNote]);
 
   const bringToFront = useCallback((noteId: string) => {
-    const currentNotes = [...localNotes]; // Work with a copy
-    const maxZ = currentNotes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
-    const targetNote = currentNotes.find(n => n.id === noteId);
+    setLocalNotes(prevNotes => {
+        const maxZ = prevNotes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
+        const targetNote = prevNotes.find(n => n.id === noteId);
 
-    if (targetNote && targetNote.zIndex <= maxZ) {
-        const newZIndex = maxZ + 1;
-        // Optimistically update local state
-        setLocalNotes(prev => 
-            prev.map(n => n.id === noteId ? { ...n, zIndex: newZIndex } : n)
-                .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-        );
-        // Update database in the background
-        updateNote(noteId, { zIndex: newZIndex });
-    }
-  }, [localNotes, updateNote]);
+        if (targetNote && targetNote.zIndex <= maxZ) {
+            const newZIndex = maxZ + 1;
+            // Update database in the background
+            updateNote(noteId, { zIndex: newZIndex });
+            // Optimistically update local state and return it
+            return prevNotes
+                .map(n => (n.id === noteId ? { ...n, zIndex: newZIndex } : n))
+                .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+        }
+        // If no change is needed, return the original state
+        return prevNotes;
+    });
+  }, [updateNote]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, noteId: string) => {
     pauseSubscription();
