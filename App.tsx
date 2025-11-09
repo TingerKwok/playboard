@@ -59,18 +59,21 @@ function LoadingOverlay({ message }: { message: string }) {
 }
 
 function App() {
-  const { notes, addNote, deleteNote, updateNote } = useSupabaseData();
+  const { notes, addNote, deleteNote, updateNote, pauseSubscription, resumeSubscription } = useSupabaseData();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggingNote, setDraggingNote] = useState<{ id: string; offsetX: number; offsetY: number; width: number; height: number; } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Thinking...");
   const whiteboardRef = useRef<HTMLDivElement>(null);
+  const draggedElementRef = useRef<HTMLDivElement | null>(null);
+  const dragPositionRef = useRef({ x: 0, y: 0 });
 
+  // This effect now simply syncs the local state with the data from the hook.
+  // The complex logic to prevent race conditions is no longer needed because
+  // the subscription is paused during drag operations.
   useEffect(() => {
-    if (!draggingNote) {
-      setLocalNotes(notes);
-    }
-  }, [notes, draggingNote]);
+    setLocalNotes(notes);
+  }, [notes]);
 
   const handleCreateTextNote = (promptText: string) => {
     if (!isSupabaseConfigured) return;
@@ -114,7 +117,6 @@ function App() {
 
         const imageData = await imageResponse.json();
         
-        // FIX: Check for an error response from the proxy first.
         if (imageData.error) {
           throw new Error(`Server error: ${imageData.error}`);
         }
@@ -139,19 +141,36 @@ function App() {
     }
   };
 
+  const handleDeleteNote = useCallback((noteId: string) => {
+    setLocalNotes(prevNotes => prevNotes.filter(note => note.id !== noteId));
+    deleteNote(noteId);
+  }, [deleteNote]);
+
   const bringToFront = useCallback((noteId: string) => {
-    const maxZ = localNotes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
-    const targetNote = localNotes.find(n => n.id === noteId);
+    const currentNotes = localNotes;
+    const maxZ = currentNotes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
+    const targetNote = currentNotes.find(n => n.id === noteId);
+
     if (targetNote && targetNote.zIndex <= maxZ) {
         const newZIndex = maxZ + 1;
-        setLocalNotes(prev => prev.map(n => n.id === noteId ? { ...n, zIndex: newZIndex } : n).sort((a,b) => (a.zIndex || 0) - (b.zIndex || 0)));
+        // Optimistically update local state
+        setLocalNotes(prev => 
+            prev.map(n => n.id === noteId ? { ...n, zIndex: newZIndex } : n)
+                .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+        );
+        // Update database in the background
         updateNote(noteId, { zIndex: newZIndex });
     }
   }, [localNotes, updateNote]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, noteId: string) => {
+    // Pause real-time updates to prevent interference during drag
+    pauseSubscription();
+
     const noteElement = e.currentTarget;
+    draggedElementRef.current = noteElement;
     const rect = noteElement.getBoundingClientRect();
+    
     setDraggingNote({
       id: noteId,
       offsetX: e.clientX - rect.left,
@@ -159,12 +178,13 @@ function App() {
       width: noteElement.offsetWidth,
       height: noteElement.offsetHeight,
     });
+    
     bringToFront(noteId);
     e.preventDefault();
-  }, [bringToFront]);
+  }, [bringToFront, pauseSubscription]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!draggingNote || !whiteboardRef.current) return;
+    if (!draggingNote || !whiteboardRef.current || !draggedElementRef.current) return;
     
     const whiteboardRect = whiteboardRef.current.getBoundingClientRect();
     
@@ -174,23 +194,33 @@ function App() {
     x = Math.max(10, Math.min(x, whiteboardRect.width - draggingNote.width - 10));
     y = Math.max(10, Math.min(y, whiteboardRect.height - draggingNote.height - 10));
     
-    setLocalNotes(prevNotes => 
-      prevNotes.map(n => 
-          n.id === draggingNote.id ? { ...n, x, y } : n
-      )
-    );
+    dragPositionRef.current = { x, y };
+
+    const element = draggedElementRef.current;
+    element.style.setProperty('--tw-translate-x', `${x}px`);
+    element.style.setProperty('--tw-translate-y', `${y}px`);
   }, [draggingNote]);
   
   const handleMouseUp = useCallback(() => {
     if (!draggingNote) return;
+
+    const finalPosition = dragPositionRef.current;
     
-    const finalNote = localNotes.find(n => n.id === draggingNote.id);
-    if (finalNote) {
-      updateNote(draggingNote.id, { x: finalNote.x, y: finalNote.y });
-    }
+    setLocalNotes(prevNotes => 
+      prevNotes.map(n => 
+        n.id === draggingNote.id ? { ...n, x: finalPosition.x, y: finalPosition.y } : n
+      )
+    );
+
+    updateNote(draggingNote.id, { x: finalPosition.x, y: finalPosition.y });
     
     setDraggingNote(null);
-  }, [draggingNote, updateNote, localNotes]);
+    draggedElementRef.current = null;
+    
+    // Resume real-time updates now that the drag is complete
+    resumeSubscription();
+
+  }, [draggingNote, updateNote, resumeSubscription]);
   
   if (!isSupabaseConfigured) {
     return <AppConfigMessage />;
@@ -217,7 +247,7 @@ function App() {
             key={note.id}
             note={note}
             onMouseDown={handleMouseDown}
-            onDelete={deleteNote}
+            onDelete={handleDeleteNote}
           />
         ))}
         {localNotes.length === 0 && !isProcessing && (

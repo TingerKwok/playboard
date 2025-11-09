@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { Note } from '../types';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 const noteColors = [
   'bg-orange-200 dark:bg-orange-700',
@@ -15,16 +16,30 @@ const rotations = ['-rotate-2', 'rotate-2', '-rotate-1', 'rotate-1', '-rotate-3'
 
 export function useSupabaseData() {
   const [notes, setNotes] = useState<Note[]>([]);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const fetchNotes = useCallback(async () => {
     if (!supabase) return;
-    const { data, error } = await supabase.from('notes').select('*');
+    const { data, error } = await supabase.from('notes').select('*').order('zIndex');
     if (error) {
       console.error('Error fetching notes:', error);
     } else {
       setNotes(data || []);
     }
   }, []);
+
+  const pauseSubscription = useCallback(() => {
+    channelRef.current?.unsubscribe();
+  }, []);
+
+  const resumeSubscription = useCallback(() => {
+    channelRef.current?.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        fetchNotes();
+      }
+    });
+  }, [fetchNotes]);
+
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -36,14 +51,13 @@ export function useSupabaseData() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notes' },
-        (payload) => {
-          console.log('Change received!', payload);
-          // A simple and robust way to handle changes is to just refetch all data.
-          // For more complex apps, you could handle insert/update/delete events individually.
+        () => {
           fetchNotes();
         }
       )
       .subscribe();
+      
+    channelRef.current = channel;
 
     return () => {
       supabase.removeChannel(channel);
@@ -53,6 +67,7 @@ export function useSupabaseData() {
   const addNote = useCallback(async (content: string, type: 'text' | 'image') => {
     if (!supabase) return;
     
+    // Get the latest maxZ from the current state before adding
     const maxZ = notes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
 
     const newNote: Omit<Note, 'id'> = {
@@ -82,5 +97,5 @@ export function useSupabaseData() {
       await supabase.from('notes').update(newValues).eq('id', noteId);
   }, []);
 
-  return { notes, addNote, deleteNote, updateNote };
+  return { notes, addNote, deleteNote, updateNote, pauseSubscription, resumeSubscription };
 }

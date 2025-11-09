@@ -23,12 +23,12 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, onDelete, onMouseDown }) 
         absolute shadow-lg rounded-md transition-all duration-200 ease-in-out 
         hover:scale-105 hover:shadow-xl 
         cursor-grab active:cursor-grabbing active:scale-110 active:shadow-2xl active:transition-none 
-        flex ${note.color} ${note.rotation} ${noteSpecificClasses}
+        flex transform ${note.color} ${note.rotation} ${noteSpecificClasses}
       `}
       style={{ 
         fontFamily: isTextNote ? "'Caveat', cursive" : 'sans-serif',
-        left: `${note.x}px`,
-        top: `${note.y}px`,
+        '--tw-translate-x': `${note.x}px`,
+        '--tw-translate-y': `${note.y}px`,
         zIndex: note.zIndex,
         touchAction: 'none',
       }}
@@ -55,4 +55,4 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, onDelete, onMouseDown }) 
   );
 };
 
-export default StickyNote;
+export default React.memo(StickyNote);
