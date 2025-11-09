@@ -102,7 +102,9 @@ export function useSupabaseData() {
   const clearAllNotes = useCallback(async () => {
     if (!supabase) return;
     // This will delete all rows that the user has access to based on RLS policies.
-    const { error } = await supabase.from('notes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // We use .gte('zIndex', 0) as a safe filter to apply the delete to all notes,
+    // as zIndex is always a positive number. This avoids the 400 Bad Request error.
+    const { error } = await supabase.from('notes').delete().gte('zIndex', 0);
     if (error) {
       console.error('Error clearing all notes:', error);
     }
