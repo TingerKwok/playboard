@@ -7,27 +7,7 @@ const useCanvasDrawing = (canvasRef: React.RefObject<HTMLCanvasElement>) => {
   const [penWidth] = useState(3); // Pen width
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
 
-  const resizeCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    const context = contextRef.current;
-    if (!canvas || !context) return;
-
-    const newWidth = canvas.clientWidth;
-    const newHeight = canvas.clientHeight;
-    
-    // Only resize if dimensions have actually changed to avoid unnecessary redraws
-    if (canvas.width !== newWidth || canvas.height !== newHeight) {
-      // Set the canvas resolution to match its display size
-      canvas.width = newWidth;
-      canvas.height = newHeight;
-      
-      // Re-apply context settings as they are reset on resize
-      context.lineCap = 'round';
-      context.strokeStyle = penColor;
-      context.lineWidth = penWidth;
-    }
-  }, [canvasRef, penColor, penWidth]);
-
+  // This useEffect handles the canvas setup and resizing logic.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -37,19 +17,41 @@ const useCanvasDrawing = (canvasRef: React.RefObject<HTMLCanvasElement>) => {
     
     contextRef.current = context;
 
-    // Use a ResizeObserver to handle canvas sizing. This is more robust
-    // than listening to window resize events, as it correctly handles
-    // initial layout, CSS-driven size changes, and flexbox adjustments,
-    // solving the issue where the canvas size was 0 on load.
-    const observer = new ResizeObserver(() => {
-      resizeCanvas();
-    });
-    observer.observe(canvas);
-
-    return () => {
-      observer.disconnect();
+    // This function synchronizes the canvas's drawing buffer size with its element size on the page.
+    const handleResize = () => {
+      const parent = canvas.parentElement;
+      if (parent) {
+        // Get the real, displayed size of the container.
+        const newWidth = parent.clientWidth;
+        const newHeight = parent.clientHeight;
+        
+        // Update the canvas resolution only if it has changed.
+        if (canvas.width !== newWidth || canvas.height !== newHeight) {
+          canvas.width = newWidth;
+          canvas.height = newHeight;
+          
+          // Re-apply context settings as they are reset when the canvas size is changed.
+          context.lineCap = 'round';
+          context.strokeStyle = penColor;
+          context.lineWidth = penWidth;
+        }
+      }
     };
-  }, [canvasRef, resizeCanvas]);
+    
+    // Call resize once initially to set the size correctly.
+    // A small delay ensures that the browser has completed its layout calculations,
+    // so we get the correct final size of the container.
+    const resizeTimeout = setTimeout(handleResize, 50);
+
+    // Also, resize the canvas whenever the window is resized.
+    window.addEventListener('resize', handleResize);
+
+    // Cleanup function to remove the listener and timeout when the component unmounts.
+    return () => {
+      clearTimeout(resizeTimeout);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [canvasRef, penColor, penWidth]); // Dependencies ensure settings are reapplied if they change.
 
   useEffect(() => {
     if (contextRef.current) {
