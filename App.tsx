@@ -72,7 +72,12 @@ function App() {
     }
   }, [notes, draggingNote]);
 
-  const handleFormSubmit = async (promptText: string) => {
+  const handleCreateTextNote = (promptText: string) => {
+    if (!isSupabaseConfigured) return;
+    addNote(promptText, 'text');
+  };
+
+  const handleCreateImageNote = async (promptText: string) => {
     if (!isSupabaseConfigured) return;
     setIsProcessing(true);
     setLoadingMessage("Thinking...");
@@ -117,6 +122,7 @@ function App() {
         }
 
       } else {
+        alert("Sorry, that didn't look like something we can draw. Your original text will be added as a note instead.");
         addNote(promptText, 'text');
       }
     } catch (error) {
@@ -214,14 +220,18 @@ function App() {
              <div className="text-center p-10">
                 <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">Whiteboard is Empty</h2>
                 <p className="mt-2 text-gray-500 dark:text-gray-400">
-                  Add text or an English noun for an image!
+                  Type something below to get started!
                 </p>
               </div>
            </div>
         )}
       </main>
       
-      <AddNoteForm onSubmit={handleFormSubmit} isProcessing={isProcessing} />
+      <AddNoteForm 
+        onCreateText={handleCreateTextNote} 
+        onCreateImage={handleCreateImageNote} 
+        isProcessing={isProcessing} 
+      />
     </div>
   );
 }
