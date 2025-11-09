@@ -99,5 +99,14 @@ export function useSupabaseData() {
       await supabase.from('notes').update(newValues).eq('id', noteId);
   }, []);
 
-  return { notes, addNote, deleteNote, updateNote, pauseSubscription, resumeSubscription };
+  const clearAllNotes = useCallback(async () => {
+    if (!supabase) return;
+    // This will delete all rows that the user has access to based on RLS policies.
+    const { error } = await supabase.from('notes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (error) {
+      console.error('Error clearing all notes:', error);
+    }
+  }, []);
+
+  return { notes, addNote, deleteNote, updateNote, pauseSubscription, resumeSubscription, clearAllNotes };
 }

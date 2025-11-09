@@ -44,7 +44,7 @@ function AppConfigMessage() {
 }
 
 function App() {
-  const { notes, addNote, deleteNote, updateNote, pauseSubscription, resumeSubscription } = useSupabaseData();
+  const { notes, addNote, deleteNote, updateNote, pauseSubscription, resumeSubscription, clearAllNotes } = useSupabaseData();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggingNote, setDraggingNote] = useState<{ id: string; offsetX: number; offsetY: number; width: number; height: number; } | null>(null);
   const whiteboardRef = useRef<HTMLDivElement>(null);
@@ -187,6 +187,14 @@ function App() {
     deleteNote(noteId);
   }, [deleteNote]);
 
+  const handleClearBoard = useCallback(() => {
+    if (localNotes.length === 0) return;
+    if (window.confirm('Are you sure you want to clear the entire board? This action cannot be undone.')) {
+      setLocalNotes([]);
+      clearAllNotes();
+    }
+  }, [localNotes.length, clearAllNotes]);
+
   const bringToFront = useCallback((noteId: string) => {
     setLocalNotes(prevNotes => {
         const maxZ = prevNotes.reduce((max, note) => Math.max(max, note.zIndex || 1), 0);
@@ -284,10 +292,21 @@ function App() {
 
   return (
     <div className="min-h-screen font-sans">
-      <header className="text-center py-4 bg-orange-100/50 dark:bg-slate-800/50 backdrop-blur-sm fixed top-0 left-0 right-0 z-20">
+      <header className="relative text-center py-4 bg-orange-100/50 dark:bg-slate-800/50 backdrop-blur-sm fixed top-0 left-0 right-0 z-20">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white" style={{ fontFamily: "'Caveat', cursive" }}>
           Play Board
         </h1>
+        <button
+            onClick={handleClearBoard}
+            disabled={localNotes.length === 0}
+            className="absolute top-1/2 right-4 -translate-y-1/2 p-2 rounded-full text-gray-500 hover:bg-gray-200 hover:text-red-600 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-500 dark:disabled:hover:text-gray-400"
+            aria-label="Clear board"
+            title="Clear board"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+        </button>
       </header>
 
       <main 
