@@ -1,5 +1,16 @@
 // /functions/api/proxy.ts
 
+// FIX: Define minimal types for Cloudflare Pages to resolve compilation errors.
+// In a proper Cloudflare environment, these types would be provided automatically.
+interface CloudflareRequest extends Request {
+  json<T = any>(): Promise<T>;
+}
+type PagesFunction<Env = unknown> = (context: {
+  request: CloudflareRequest;
+  env: Env;
+}) => Response | Promise<Response>;
+
+
 interface Env {
   SILICONFLOW_API_KEY: string;
 }
@@ -40,7 +51,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     } else if (action === 'generate') {
       apiUrl = "https://api.siliconflow.cn/v1/images/generations";
       apiBody = JSON.stringify({
-        model: "stabilityai/stable-diffusion-xl-base-1.0",
+        model: "Kwai-Kolors/Kolors",
         prompt: `A simple, cute, cartoon-style icon of a "${prompt}". Centered on a clean, white background.`,
         response_format: "b64_json",
         n: 1,
