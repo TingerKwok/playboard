@@ -114,6 +114,11 @@ function App() {
 
         const imageData = await imageResponse.json();
         
+        // FIX: Check for an error response from the proxy first.
+        if (imageData.error) {
+          throw new Error(`Server error: ${imageData.error}`);
+        }
+        
         if (imageData.data && imageData.data[0].b64_json) {
             const imageUrl = `data:image/png;base64,${imageData.data[0].b64_json}`;
             addNote(imageUrl, 'image');

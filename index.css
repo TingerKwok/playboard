@@ -1,0 +1,10 @@
+/* 
+  This file resolves the MIME type error caused by the missing stylesheet link in index.html.
+  It also provides some useful global styles.
+*/
+body {
+  font-family: 'Inter', sans-serif;
+  overflow: hidden; /* Prevent the main page from scrolling when dragging notes */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
