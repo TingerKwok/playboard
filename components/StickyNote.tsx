@@ -13,7 +13,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, onDelete, onMouseDown }) 
   // Define size and layout classes based on note type
   const noteSpecificClasses = isTextNote
     ? 'w-auto max-w-[250px] p-3'
-    : 'w-32 h-32 flex-col items-center justify-center'; // p-2 removed to allow image to fill card
+    : 'w-16 h-16 flex-col items-center justify-center'; // p-2 removed to allow image to fill card
 
   return (
     <div
