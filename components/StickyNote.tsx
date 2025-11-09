@@ -13,7 +13,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, onDelete, onMouseDown }) 
   // Define size and layout classes based on note type
   const noteSpecificClasses = isTextNote
     ? 'w-auto max-w-[250px] p-3'
-    : 'w-32 h-32 p-2 flex-col items-center justify-center'; // w-32 is 8rem or 128px
+    : 'w-32 h-32 flex-col items-center justify-center'; // p-2 removed to allow image to fill card
 
   return (
     <div
@@ -54,7 +54,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, onDelete, onMouseDown }) 
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
           ) : (
-            <img src={note.content} alt="Generated content" className="max-w-full max-h-full object-contain rounded-sm"/>
+            <img src={note.content} alt="Generated content" className="max-w-full max-h-full object-contain rounded-md"/>
           )}
         </div>
       )}
