@@ -15,36 +15,17 @@ const useCanvasDrawing = (canvasRef: React.RefObject<HTMLCanvasElement>) => {
     const newWidth = canvas.clientWidth;
     const newHeight = canvas.clientHeight;
     
-    // Do nothing if the display size is the same
-    if (canvas.width === newWidth && canvas.height === newHeight) {
-      return;
+    // Only resize if dimensions have actually changed to avoid unnecessary redraws
+    if (canvas.width !== newWidth || canvas.height !== newHeight) {
+      // Set the canvas resolution to match its display size
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      
+      // Re-apply context settings as they are reset on resize
+      context.lineCap = 'round';
+      context.strokeStyle = penColor;
+      context.lineWidth = penWidth;
     }
-
-    // Create a temporary canvas to hold the current drawing
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return;
-
-    // Preserve the existing drawing only if the canvas was previously sized
-    if (canvas.width > 0 && canvas.height > 0) {
-      tempCanvas.width = canvas.width;
-      tempCanvas.height = canvas.height;
-      tempCtx.drawImage(canvas, 0, 0);
-    }
-    
-    // Resize main canvas to its new display size
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    
-    // Restore the drawing from the temporary canvas
-    if (tempCanvas.width > 0 && tempCanvas.height > 0) {
-      context.drawImage(tempCanvas, 0, 0);
-    }
-    
-    // Re-apply context settings as they are reset on resize
-    context.lineCap = 'round';
-    context.strokeStyle = penColor;
-    context.lineWidth = penWidth;
   }, [canvasRef, penColor, penWidth]);
 
   useEffect(() => {
